@@ -20,12 +20,14 @@ class Trainer:
         # dataloder parameters
         C.num_workers = 4
         # optimizer parameters
-        C.max_iters = None
-        C.batch_size = 64
+        C.max_iters = 100
+        C.batch_size = 16
         C.learning_rate = 3e-4
         C.betas = (0.9, 0.95)
         C.weight_decay = 0.1 # only applied on matmul weights
         C.grad_norm_clip = 1.0
+        C.checkpoint_every = 10
+        C.log_every = 10
         return C
 
     def __init__(self, config, model, train_dataset):
@@ -72,6 +74,7 @@ class Trainer:
             pin_memory=True,
             batch_size=config.batch_size,
             num_workers=config.num_workers,
+            collate_fn=self.train_dataset.pad_to_longest,
         )
 
         model.train()
@@ -79,7 +82,6 @@ class Trainer:
         self.iter_time = time.time()
         data_iter = iter(train_loader)
         while True:
-
             # fetch the next batch (x, y) and re-init iterator if needed
             try:
                 batch = next(data_iter)
@@ -98,7 +100,8 @@ class Trainer:
             torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
             self.optimizer.step()
 
-            self.trigger_callbacks('on_batch_end')
+            self.trigger_callbacks('log')
+            self.trigger_callbacks('checkpoint')
             self.iter_num += 1
             tnow = time.time()
             self.iter_dt = tnow - self.iter_time
@@ -107,3 +110,5 @@ class Trainer:
             # termination conditions
             if config.max_iters is not None and self.iter_num >= config.max_iters:
                 break
+
+        print("Training finished!")

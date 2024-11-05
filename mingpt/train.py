@@ -14,7 +14,7 @@ def main():
     output_folder.mkdir(parents=True, exist_ok=True)
 
     print('Loading dataset...', flush=True)
-    dataset = PileDataset('/home/jo288/nobackup/autodelete/cs674project2/pile_data_10.jsonl', sequence_length)
+    dataset = PileDataset('/home/jo288/nobackup/autodelete/cs674project2/pile_data_short.jsonl', sequence_length)
 
     print('Loading model...', flush=True)
     model_config = GPT.get_default_config()

@@ -49,7 +49,7 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.n_embd = config.n_embd
 
-    def forward(self, x):
+    def forward(self, x, prefix_index=None):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
@@ -60,7 +60,23 @@ class CausalSelfAttention(nn.Module):
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-        att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+        if prefix_index is None:
+            att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+        else:
+            # Apply a causal mask with a bi-directional prefix up to the prefix_index
+            # Everything up until prefix_index is allowed to attend to everything, is unmasked
+            # mask = self.bias[:,:,:T,:T]
+            # unmask the prefix
+            # each sequence in the batch will have a different prefix index, so we must construct a mask for each
+            # Create a mask using torch triu
+            mask = torch.triu(torch.ones(T, T), diagonal=0).transpose(0,1).to(x.device)
+            mask = mask.unsqueeze(0).unsqueeze(0).expand(B, 1, T, T)
+
+            for i in range(B):
+                mask[i, :, :prefix_index[i], :prefix_index[i]] = 1
+            
+            att = att.masked_fill(mask == 0, float('-inf'))
+        
         att = F.softmax(att, dim=-1)
         att = self.attn_dropout(att)
         y = att @ v # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
@@ -87,8 +103,8 @@ class Block(nn.Module):
         m = self.mlp
         self.mlpf = lambda x: m.dropout(m.c_proj(m.act(m.c_fc(x)))) # MLP forward
 
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+    def forward(self, x, prefix_index=None):
+        x = x + self.attn(self.ln_1(x), prefix_index=prefix_index)
         x = x + self.mlpf(self.ln_2(x))
         return x
 
@@ -268,7 +284,7 @@ class GPT(nn.Module):
         optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
         return optimizer
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, prefix_index=None):
         device = idx.device
         b, t = idx.size()
         assert t <= self.block_size, f"Cannot forward sequence of length {t}, block size is only {self.block_size}"
@@ -279,7 +295,7 @@ class GPT(nn.Module):
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (1, t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
         for block in self.transformer.h:
-            x = block(x)
+            x = block(x, prefix_index=prefix_index)
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
 

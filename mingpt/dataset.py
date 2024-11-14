@@ -23,7 +23,8 @@ class PileDataset(Dataset):
             # Create a list the length of the data, where each element is a string
             # representing the type of the data (S2S, NLU, NLG), divided so that
             # S2S is randomly 50% of the data, and NLU and NLG are 25% each
-            self.data_types = ['[S2S]'] * (self.length // 2) + ['[NLU]'] * (self.length // 4) + ['[NLG]'] * (self.length // 4)
+            # round up to the nearest integer
+            self.data_types = ['[S2S]'] * math.ceil(self.length / 2) + ['[NLU]'] * math.ceil(self.length / 4) + ['[NLG]'] * math.ceil(self.length / 4)
             # Shuffle the data_types list
             random.shuffle(self.data_types)
 
@@ -70,24 +71,34 @@ class PileDataset(Dataset):
         item = self.data.iloc[idx].text
         # Tokenize item
         item = self.tokenizer(item)['input_ids']
+        type = self.data_types[idx]
+        
+        if len(item) > self.get_block_size():
+            # trim item to 3/4 of the block size
+            item = item[:int(self.get_block_size() * 3/4)]
 
         if self.use_UL2:
-            type = self.data_types[idx]
-            item = self.SpanCorrupt(item, type)
-        
-        if len(item) <= self.get_block_size():
-            length = len(item)
-            #item = np.append(item, self.eos_tok)
-            x = item[:length-1]
-            y = item[1:length]  
+            item, prefix_index = self.SpanCorrupt(item, type)
+        new_length = len(item)
+
+        if new_length < self.get_block_size():
+            x = item[:new_length-1]
+            y = item[1:new_length]
         else:
             x = item[:self.get_block_size()]
             y = item[1:self.get_block_size()+1]
         
-        return x, y
+        if prefix_index >= self.get_block_size():
+            print('prefix_index: ', prefix_index)
+            print('block_size: ', self.get_block_size())
+            # throw error
+            raise ValueError('Prefix index is greater than or equal to block size')
+        
+        return x, y, prefix_index
     
     def pad_to_longest(self, batch):
-        x, y = zip(*batch)
+    
+        x, y, prefix_index = zip(*batch)
 
         x_lens = [len(s) for s in x]
         pad_len = max(x_lens)
@@ -101,7 +112,7 @@ class PileDataset(Dataset):
         pad_x = torch.tensor(pad_x)
         pad_y = torch.tensor(pad_y)
 
-        return pad_x, pad_y
+        return pad_x, pad_y, prefix_index
     
     def SpanCorrupt(self, input_tokens, type):
         # Type is either:
@@ -168,21 +179,40 @@ class PileDataset(Dataset):
                 end = start + length
             selected_spans.append((start, end))
         
-        print('selected_spans:', selected_spans)
+        # order spans by start index
+        selected_spans = sorted(selected_spans, key=lambda x: x[0])
 
         target_tokens = []
 
+        new_input_tokens = input_tokens.copy()
+
+        # Create new input, moving backwards through list to not mess up indices of spans
+        for i in range(len(selected_spans)-1, -1, -1):
+            start, end = selected_spans[i]
+            id_token = self.tokenizer.convert_tokens_to_ids([f'<extra_id_{i}>'])[0]
+            new_input_tokens = new_input_tokens[:start] + [id_token] + new_input_tokens[end:]
+
+        # Create target
         for i, span in enumerate(selected_spans):
             start, end = span
             id_token = self.tokenizer.convert_tokens_to_ids([f'<extra_id_{i}>'])[0]
             target_tokens.append(id_token)
-            target_tokens.append(input_tokens[start:end])
-            input_tokens[start:end] = id_token
+            for token in input_tokens[start:end]:
+                target_tokens.append(token)
 
-        print('target_tokens:', target_tokens)
+        # Add type token
+        type_token = self.tokenizer.convert_tokens_to_ids([type])[0]
 
-        input_tokens = input_tokens + target_tokens
-        print('input_tokens:', input_tokens)
-        return input_tokens
+        new_src_tokens = [type_token] + new_input_tokens 
+        new_target_tokens = [self.tokenizer.pad_token_id] + target_tokens
+        prefix_index = len(new_src_tokens)
+        final_tokens = new_src_tokens + new_target_tokens
+        # print("prefix_index: ", prefix_index)
+
+        # print('input_tokens: ', self.tokenizer.decode(input_tokens))
+        # decode new_input_tokens to check if it looks correct
+        # print('new_input_tokens:', self.tokenizer.decode(final_tokens))
+
+        return final_tokens, prefix_index
 
 

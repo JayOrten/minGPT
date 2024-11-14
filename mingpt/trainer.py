@@ -88,11 +88,12 @@ class Trainer:
             except StopIteration:
                 data_iter = iter(train_loader)
                 batch = next(data_iter)
-            batch = [t.to(self.device) for t in batch]
-            x, y = batch
+            x, y, prefix_index = batch
+            x = x.to(self.device)
+            y = y.to(self.device)
 
             # forward the model
-            logits, self.loss = model(x, y)
+            logits, self.loss = model(x, y, prefix_index)
 
             # backprop and update the parameters
             model.zero_grad(set_to_none=True)

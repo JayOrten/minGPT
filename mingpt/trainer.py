@@ -21,8 +21,8 @@ class Trainer:
         C.num_workers = 4
         # optimizer parameters
         C.max_iters = 100
-        C.batch_size = 16
-        C.learning_rate = 3e-4
+        C.batch_size = 8
+        C.learning_rate = 1e-4
         C.betas = (0.9, 0.95)
         C.weight_decay = 0.1 # only applied on matmul weights
         C.grad_norm_clip = 1.0
@@ -91,6 +91,13 @@ class Trainer:
             x, y, prefix_index = batch
             x = x.to(self.device)
             y = y.to(self.device)
+
+            # if x and y aren't the same size, continue
+            if x.size() != y.size():
+                print('x and y aren\'t the sema size')
+                print('x.size(): ', x.size())
+                print('y.size(): ', y.size())
+                continue
 
             # forward the model
             logits, self.loss = model(x, y, prefix_index)

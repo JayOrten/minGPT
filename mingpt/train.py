@@ -10,26 +10,43 @@ set_seed(3407)
 
 def main():
     sequence_length = 512
-    output_folder = Path('/home/jo288/nobackup/autodelete/cs674project2/runs/run4')
+    model_type = 'gpt2-medium'
+    # output_folder = Path('/home/jo288/nobackup/autodelete/cs674project2/runs/run4_iter50000_ul2')
+    output_folder = Path('/home/jo288/nobackup/autodelete/cs674project2/runs/run5')
     output_folder.mkdir(parents=True, exist_ok=True)
 
     print('Loading dataset...', flush=True)
-    dataset = PileDataset('/home/jo288/nobackup/autodelete/cs674project2/pile_data_short.jsonl', sequence_length)
+    # dataset = PileDataset('/home/jo288/nobackup/autodelete/cs674project2/pile_data_10.jsonl', sequence_length, use_UL2=True, ul2_percentage=0.4)
+    # dataset = PileDataset('/home/jo288/nobackup/autodelete/cs674project2/pile_data_short.jsonl', sequence_length, use_UL2=True, ul2_percentage=0.2)
+    dataset = PileDataset('/home/jo288/nobackup/autodelete/cs674project2/pile_data_10.jsonl', sequence_length, use_UL2=False)
 
     print('Loading model...', flush=True)
+    # checkpoint_path = "/home/jo288/nobackup/autodelete/cs674project2/runs/run4/model_50000_loss_0.24781.pt"
+    checkpoint_path = None
+
     model_config = GPT.get_default_config()
-    model_config.model_type = 'gpt2'
+    model_config.model_type = model_type
     model_config.vocab_size = dataset.get_vocab_size()
     model_config.block_size = dataset.get_block_size()
-    model = GPT(model_config)
+    model_config.padding_token_id = dataset.pad_tok
+
+    if checkpoint_path is not None:
+        model = GPT.from_pretrained(model_type, 
+            checkpoint_file=checkpoint_path,
+            vocab_size=dataset.get_vocab_size(),
+            block_size=1023,
+            padding_token_id=dataset.pad_tok)
+        print(f"loaded model from {checkpoint_path}", flush=True)
+    else:
+        model = GPT(model_config)
 
     print('Training model...', flush=True)
     train_config = Trainer.get_default_config()
-    train_config.learning_rate = 0.0001
-    train_config.max_iters = 80000
+    train_config.learning_rate = 5e-6
+    train_config.max_iters = 20000
     train_config.num_workers = 0
-    train_config.checkpoint_every = 5000
-    train_config.log_every = 500
+    train_config.checkpoint_every = 500
+    train_config.log_every = 1
     trainer = Trainer(train_config, model, dataset)
 
     # Save config parameters to output_folder

@@ -71,14 +71,23 @@ class PileDataset(Dataset):
         item = self.data.iloc[idx].text
         # Tokenize item
         item = self.tokenizer(item)['input_ids']
-        type = self.data_types[idx]
         
         if len(item) > self.get_block_size():
             # trim item to 3/4 of the block size
             item = item[:int(self.get_block_size() * 3/4)]
 
+        prefix_index = None
+
         if self.use_UL2:
+            type = self.data_types[idx]
             item, prefix_index = self.SpanCorrupt(item, type)
+
+            if prefix_index >= self.get_block_size():
+                print('prefix_index: ', prefix_index)
+                print('block_size: ', self.get_block_size())
+                # throw error
+                raise ValueError('Prefix index is greater than or equal to block size')
+            
         new_length = len(item)
 
         if new_length < self.get_block_size():
@@ -87,12 +96,6 @@ class PileDataset(Dataset):
         else:
             x = item[:self.get_block_size()]
             y = item[1:self.get_block_size()+1]
-        
-        if prefix_index >= self.get_block_size():
-            print('prefix_index: ', prefix_index)
-            print('block_size: ', self.get_block_size())
-            # throw error
-            raise ValueError('Prefix index is greater than or equal to block size')
         
         return x, y, prefix_index
     

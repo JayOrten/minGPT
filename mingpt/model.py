@@ -65,10 +65,6 @@ class CausalSelfAttention(nn.Module):
         else:
             # Apply a causal mask with a bi-directional prefix up to the prefix_index
             # Everything up until prefix_index is allowed to attend to everything, is unmasked
-            # mask = self.bias[:,:,:T,:T]
-            # unmask the prefix
-            # each sequence in the batch will have a different prefix index, so we must construct a mask for each
-            # Create a mask using torch triu
             mask = torch.triu(torch.ones(T, T), diagonal=0).transpose(0,1).to(x.device)
             mask = mask.unsqueeze(0).unsqueeze(0).expand(B, 1, T, T)
 
@@ -122,6 +118,7 @@ class GPT(nn.Module):
         # these options must be filled in externally
         C.vocab_size = None
         C.block_size = None
+        C.padding_token_id = -1
         # dropout hyperparameters
         C.embd_pdrop = 0.1
         C.resid_pdrop = 0.1
@@ -133,6 +130,7 @@ class GPT(nn.Module):
         assert config.vocab_size is not None
         assert config.block_size is not None
         self.block_size = config.block_size
+        self.padding_token_id = config.padding_token_id
 
         type_given = config.model_type is not None
         params_given = all([config.n_layer is not None, config.n_head is not None, config.n_embd is not None])
@@ -192,7 +190,8 @@ class GPT(nn.Module):
                         model_type,
                         checkpoint_file=None,
                         vocab_size=50257,
-                        block_size=1024):
+                        block_size=1024,
+                        padding_token_id=-1):
         """
         Initialize a pretrained GPT model by copying over the weights
         from a huggingface/transformers checkpoint.
@@ -205,6 +204,7 @@ class GPT(nn.Module):
         config.model_type = model_type
         config.vocab_size = vocab_size
         config.block_size = block_size
+        config.padding_token_id = padding_token_id
         model = GPT(config)
         sd = model.state_dict()
 
@@ -302,7 +302,7 @@ class GPT(nn.Module):
         # if we are given some desired targets also calculate the loss
         loss = None
         if targets is not None:
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=self.padding_token_id)
 
         return logits, loss
 
